@@ -41,6 +41,7 @@ const styles = require('./styles');
 const Video = require('./Video');
 const { default: Indicator } = require('./Indicator/Indicator');
 const { default: useMediaSession } = require('./useMediaSession');
+const { getMediaKeyAction, isDuplicateMediaKey } = require('./mediaKeys');
 
 const GAMEPAD_HANDLER_ID = 'player';
 
@@ -200,6 +201,7 @@ const Player = () => {
     });
 
     const playingOnExternalDevice = React.useRef(false);
+    const lastMediaKeyAt = React.useRef(-Infinity);
     const { castToDevice, stopBeforeLocalPlay, isCasting } = useCastDevice(castStreamingUrl, streamingServer.casting, video, playingOnExternalDevice);
     const onCastDeviceSelected = (deviceId) => {
         castToDevice(deviceId);
@@ -685,21 +687,44 @@ const Player = () => {
         };
     }, [discord.setActivity]);
 
-    useMediaSession(video.state, player, fullscreen, onPlayRequested, onPauseRequested, onNextVideoRequested);
+    // One physical media key press can reach us through keydown, Media Session and the shell.
+    // Only the first signal within a short window is handled, so play/pause does not toggle twice.
+    const claimMediaKey = React.useCallback(() => {
+        const now = Date.now();
+        if (isDuplicateMediaKey(lastMediaKeyAt.current, now)) return false;
+        lastMediaKeyAt.current = now;
+        return true;
+    }, []);
+
+    const onMediaKeyAction = React.useCallback((action) => {
+        if (!claimMediaKey()) return;
+        switch (action) {
+            case 'play-pause':
+                if (video.state.paused !== null) {
+                    video.state.paused ? onPlayRequested() : onPauseRequested();
+                }
+                break;
+            case 'play':
+                onPlayRequested();
+                break;
+            case 'pause':
+                onPauseRequested();
+                break;
+        }
+    }, [video.state.paused, onPlayRequested, onPauseRequested, claimMediaKey]);
+
+    const onMediaSessionPlay = React.useCallback(() => onMediaKeyAction('play'), [onMediaKeyAction]);
+    const onMediaSessionPause = React.useCallback(() => onMediaKeyAction('pause'), [onMediaKeyAction]);
+
+    useMediaSession(video.state, player, fullscreen, onMediaSessionPlay, onMediaSessionPause, onNextVideoRequested);
 
     React.useEffect(() => {
         const onMediaKey = (action) => {
             switch (action) {
                 case 'play-pause':
-                    if (video.state.paused !== null) {
-                        video.state.paused ? onPlayRequested() : onPauseRequested();
-                    }
-                    break;
                 case 'play':
-                    onPlayRequested();
-                    break;
                 case 'pause':
-                    onPauseRequested();
+                    onMediaKeyAction(action);
                     break;
                 case 'next-track':
                     if (!isEpg && player.nextVideo !== null) {
@@ -711,7 +736,25 @@ const Player = () => {
         };
         platform.shell.on('media-key', onMediaKey);
         return () => platform.shell.off('media-key', onMediaKey);
-    }, [isEpg, video.state.paused, player.nextVideo, onPlayRequested, onPauseRequested, onNextVideoRequested]);
+    }, [isEpg, player.nextVideo, onMediaKeyAction, onNextVideoRequested]);
+
+    // Play/pause keys on multimedia keyboards and Bluetooth earbuds (#977).
+    // Kept apart from the Space handler so media keys never start the speed hold.
+    React.useEffect(() => {
+        if (!routeFocused) return;
+
+        const onMediaKeyDown = (e) => {
+            const action = getMediaKeyAction(getKeyboardShortcutKeys(e), e.keyCode);
+            if (action === null) return;
+
+            e.preventDefault();
+            if (e.repeat) return;
+            onMediaKeyAction(action);
+        };
+
+        window.addEventListener('keydown', onMediaKeyDown);
+        return () => window.removeEventListener('keydown', onMediaKeyDown);
+    }, [routeFocused, onMediaKeyAction]);
 
     useShortcut('seekForward', React.useCallback((combo) => {
         const seekDuration = combo === 1 ? settings.seekShortTimeDuration : settings.seekTimeDuration;
