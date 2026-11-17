@@ -10,6 +10,8 @@ import {
     SUBTITLES_DELAY_REPEAT_INTERVAL_MS,
     SUBTITLES_DELAY_STEP_MS,
 } from './subtitleDelay';
+import { getSelectedSubtitlesTrack, getSubtitlesReapplyAction } from './subtitleReapply';
+import type { AppliedSubtitlesTrack } from './subtitleReapply';
 
 const withFallbackLabels = (tracks?: SubtitleTrack[] | null): SubtitleTrack[] => {
     if (!Array.isArray(tracks)) {
@@ -185,7 +187,8 @@ const useSubtitles = ({
     const videoRef = useRef(video);
     const settingsRef = useRef(settings);
     const trackSelectionLocked = useRef(false);
-    const appliedTrack = useRef<{ id: string, source: SubtitleSource } | null>(null);
+    const appliedTrack = useRef<AppliedSubtitlesTrack | null>(null);
+    const reapplyAttempts = useRef(0);
     const subtitleDelayHold = useRef<SubtitleDelayHold | null>(null);
     const subtitleDelayInterval = useInterval(SUBTITLES_DELAY_REPEAT_INTERVAL_MS);
     const subtitleDelayTimeout = useTimeout(SUBTITLES_DELAY_REPEAT_DELAY_MS);
@@ -243,7 +246,8 @@ const useSubtitles = ({
         }
 
         trackSelectionLocked.current = true;
-        appliedTrack.current = { id: track.id, source: 'embedded' };
+        appliedTrack.current = { id: track.id, source: 'embedded', confirmed: false };
+        reapplyAttempts.current = 0;
         setSubtitlesTrack(track.id);
         rememberTrack(track, true);
     }, [disableSubtitles, rememberTrack, setSubtitlesTrack]);
@@ -255,7 +259,8 @@ const useSubtitles = ({
         }
 
         trackSelectionLocked.current = true;
-        appliedTrack.current = { id: track.id, source: 'external' };
+        appliedTrack.current = { id: track.id, source: 'external', confirmed: false };
+        reapplyAttempts.current = 0;
         setExtraSubtitlesTrack(track.id);
         rememberTrack(track, false);
     }, [disableSubtitles, rememberTrack, setExtraSubtitlesTrack]);
@@ -362,10 +367,62 @@ const useSubtitles = ({
     useEffect(() => {
         trackSelectionLocked.current = false;
         appliedTrack.current = null;
+        reapplyAttempts.current = 0;
     }, [video.state.stream]);
 
     useEffect(() => {
+        const engineSelected = getSelectedSubtitlesTrack(
+            video.state.selectedSubtitlesTrackId,
+            video.state.selectedExtraSubtitlesTrackId,
+        );
+
+        const applyTrack = (track: { id: string, source: SubtitleSource }) => {
+            track.source === 'embedded' ?
+                setSubtitlesTrack(track.id)
+                :
+                setExtraSubtitlesTrack(track.id);
+
+            const delay = player.streamState?.subtitleDelay;
+            // Selecting an external track resets its delay in stremio-video.
+            if (track.source === 'external' && typeof delay === 'number') {
+                setSubtitlesDelay(delay);
+            }
+        };
+
+        // Returns true when the caller has nothing left to do.
+        const keepAppliedTrack = (target: { id: string, source: SubtitleSource }) => {
+            const applied = appliedTrack.current;
+            const action = getSubtitlesReapplyAction(applied, target, engineSelected, reapplyAttempts.current);
+            switch (action) {
+                case 'confirm':
+                    applied!.confirmed = true;
+                    reapplyAttempts.current = 0;
+                    return true;
+                case 'reapply':
+                    // The engine dropped a track it had already accepted (#763), so put it back.
+                    reapplyAttempts.current += 1;
+                    applied!.confirmed = false;
+                    applyTrack(target);
+                    return true;
+                case 'none':
+                case 'wait':
+                case 'give-up':
+                    return true;
+                default:
+                    return false;
+            }
+        };
+
         if (trackSelectionLocked.current) {
+            // The user picked a track by hand. Keep it alive if the engine drops it,
+            // but only while it still exists in the track list.
+            const applied = appliedTrack.current;
+            if (applied) {
+                const tracks = applied.source === 'embedded' ? video.state.subtitlesTracks : video.state.extraSubtitlesTracks;
+                if (findTrackById(tracks, applied.id)) {
+                    keepAppliedTrack(applied);
+                }
+            }
             return;
         }
 
@@ -420,26 +477,17 @@ const useSubtitles = ({
             :
             bestCandidate;
 
-        // Reapply once per stream even if the controller already reports the same track.
-        if (appliedTrack.current?.id === trackToApply.track.id &&
-            appliedTrack.current.source === trackToApply.source) {
+        const target = { id: trackToApply.track.id, source: trackToApply.source };
+
+        // Apply once per stream even if the controller already reports the same track,
+        // then keep it applied if the engine drops it later.
+        if (keepAppliedTrack(target)) {
             return;
         }
 
-        trackToApply.source === 'embedded' ?
-            setSubtitlesTrack(trackToApply.track.id)
-            :
-            setExtraSubtitlesTrack(trackToApply.track.id);
-
-        const delay = player.streamState?.subtitleDelay;
-        // Selecting an external track resets its delay in stremio-video.
-        if (trackToApply.source === 'external' && typeof delay === 'number') {
-            setSubtitlesDelay(delay);
-        }
-        appliedTrack.current = {
-            id: trackToApply.track.id,
-            source: trackToApply.source,
-        };
+        applyTrack(target);
+        appliedTrack.current = { ...target, confirmed: false };
+        reapplyAttempts.current = 0;
     }, [
         player.streamState,
         settings.subtitlesLanguage,
