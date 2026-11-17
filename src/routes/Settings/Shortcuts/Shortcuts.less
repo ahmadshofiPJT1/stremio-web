@@ -1,4 +1,36 @@
+.toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 2rem;
+
+    .reset-all {
+        padding: 0.75rem 1.5rem;
+        border-radius: 0.5rem;
+        color: var(--primary-foreground-color);
+        background-color: var(--overlay-color);
+        cursor: pointer;
+
+        &:hover {
+            outline: var(--focus-outline-size) solid var(--primary-foreground-color);
+        }
+    }
+}
+
 .shortcuts-group {
     width: 100%;
     margin-bottom: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+
+    .title {
+        font-weight: 400;
+        opacity: 0.6;
+    }
+
+    .shortcuts {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
 }
