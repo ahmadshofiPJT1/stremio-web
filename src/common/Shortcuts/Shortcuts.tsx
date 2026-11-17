@@ -1,15 +1,22 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { PRIMARY_MODIFIER, getKeyboardShortcutKey, getKeyboardShortcutKeys } from './keyboard';
 import { shouldPreventDefault } from './preventDefault';
+import { findConflict, isLocked, resetShortcut as resetShortcutOverride, resolveShortcuts, setBinding as setBindingOverride } from './bindings';
+import { STORAGE_KEY, loadOverrides, saveOverrides } from './overridesStorage';
 import shortcuts from './shortcuts.json';
-
-const SHORTCUTS = shortcuts.map(({ shortcuts }) => shortcuts).flat();
 
 export type ShortcutName = string;
 export type ShortcutListener = (combo: number, key: string, repeat: boolean) => void;
 
 interface ShortcutsContext {
-    grouped: ShortcutGroup[],
+    grouped: EffectiveShortcutGroup[],
+    defaults: ShortcutGroup[],
+    isLocked: (name: ShortcutName) => boolean,
+    findConflict: (combo: string[], target: ShortcutTarget) => ShortcutConflict | null,
+    setBinding: (target: ShortcutTarget, combo: string[], swap?: boolean) => void,
+    resetShortcut: (name: ShortcutName) => void,
+    resetAll: () => void,
+    setRecording: (recording: boolean) => void,
     on: (name: ShortcutName, listener: ShortcutListener) => void,
     off: (name: ShortcutName, listener: ShortcutListener) => void,
 }
@@ -39,10 +46,24 @@ const isInputFocused = () => {
 const ShortcutsProvider = ({ children, onShortcut }: Props) => {
     const listeners = useRef<Map<ShortcutName, Set<ShortcutListener>>>(new Map());
     const lastRepeatTime = useRef<Map<string, number>>(new Map());
+    const recording = useRef(false);
+    const [overrides, setOverrides] = useState<ShortcutOverrides>(loadOverrides);
+    const overridesRef = useRef(overrides);
+
+    const grouped = useMemo(() => resolveShortcuts(shortcuts, overrides) as EffectiveShortcutGroup[], [overrides]);
+    const effectiveShortcuts = useMemo(() => grouped.map(({ shortcuts }) => shortcuts).flat(), [grouped]);
+
+    const updateOverrides = useCallback((next: ShortcutOverrides) => {
+        if (next === overridesRef.current) return;
+        overridesRef.current = next;
+        setOverrides(next);
+        saveOverrides(next);
+    }, []);
 
     const onKeyDown = useCallback((event: KeyboardEvent) => {
         const { ctrlKey, shiftKey, altKey, metaKey, key, repeat } = event;
-        if (event.isComposing) return;
+        // While a shortcut is being recorded in Settings nothing may fire.
+        if (event.isComposing || recording.current) return;
         const inputFocused = isInputFocused();
 
         const shortcutKeys = getKeyboardShortcutKeys(event);
@@ -51,7 +72,7 @@ const ShortcutsProvider = ({ children, onShortcut }: Props) => {
         const throttled = repeat && now - (lastRepeatTime.current.get(repeatKey) ?? 0) < REPEAT_THROTTLE_MS;
         if (repeat && !throttled) lastRepeatTime.current.set(repeatKey, now);
 
-        SHORTCUTS.forEach(({ name, combos }) => combos.forEach((keys) => {
+        effectiveShortcuts.forEach(({ name, combos }) => combos.forEach((keys) => {
             const interfaceScale = name === 'interfaceScale';
             if (inputFocused && !interfaceScale) return;
 
@@ -79,7 +100,7 @@ const ShortcutsProvider = ({ children, onShortcut }: Props) => {
                 onShortcut(name as ShortcutName, combo, key);
             }
         }));
-    }, [onShortcut]);
+    }, [onShortcut, effectiveShortcuts]);
 
     const on = useCallback((name: ShortcutName, listener: ShortcutListener) => {
         !listeners.current.has(name) && listeners.current.set(name, new Set());
@@ -90,7 +111,50 @@ const ShortcutsProvider = ({ children, onShortcut }: Props) => {
         listeners.current.get(name)?.delete(listener);
     }, []);
 
-    const value = useMemo(() => ({ grouped: shortcuts, on, off }), [on, off]);
+    const setBinding = useCallback((target: ShortcutTarget, combo: string[], swap = false) => {
+        updateOverrides(setBindingOverride(overridesRef.current, shortcuts, target, combo, { swap, primaryModifier: PRIMARY_MODIFIER }));
+    }, [updateOverrides]);
+
+    const resetShortcut = useCallback((name: ShortcutName) => {
+        updateOverrides(resetShortcutOverride(overridesRef.current, name));
+    }, [updateOverrides]);
+
+    const resetAll = useCallback(() => {
+        updateOverrides({});
+    }, [updateOverrides]);
+
+    const setRecording = useCallback((value: boolean) => {
+        recording.current = value;
+    }, []);
+
+    const findShortcutConflict = useCallback((combo: string[], target: ShortcutTarget) => {
+        return findConflict(grouped, combo, target, PRIMARY_MODIFIER);
+    }, [grouped]);
+
+    const value = useMemo(() => ({
+        grouped,
+        defaults: shortcuts,
+        isLocked,
+        findConflict: findShortcutConflict,
+        setBinding,
+        resetShortcut,
+        resetAll,
+        setRecording,
+        on,
+        off,
+    }), [grouped, findShortcutConflict, setBinding, resetShortcut, resetAll, setRecording, on, off]);
+
+    // Keep other tabs in sync (the storage event only fires in the other documents).
+    useEffect(() => {
+        const onStorage = (event: StorageEvent) => {
+            if (event.key !== null && event.key !== STORAGE_KEY) return;
+            const next = loadOverrides();
+            overridesRef.current = next;
+            setOverrides(next);
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, []);
 
     useEffect(() => {
         document.addEventListener('keydown', onKeyDown);
