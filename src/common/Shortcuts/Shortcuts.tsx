@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { PRIMARY_MODIFIER, getKeyboardShortcutKey, getKeyboardShortcutKeys } from './keyboard';
+import { shouldPreventDefault } from './preventDefault';
 import shortcuts from './shortcuts.json';
 
 const SHORTCUTS = shortcuts.map(({ shortcuts }) => shortcuts).flat();
@@ -68,8 +69,9 @@ const ShortcutsProvider = ({ children, onShortcut }: Props) => {
             ));
 
             if (modifiers && keyMatched) {
-                // Consume repeats and limit hits too, otherwise the browser also zooms.
-                if (interfaceScale) event.preventDefault();
+                // Block the browser action for modifier combos (zoom, Ctrl+G find next, ...).
+                // Do it before the throttle check so held keys are consumed too.
+                if (shouldPreventDefault(name, keys)) event.preventDefault();
                 if (throttled) return;
                 const combo = combos.indexOf(keys);
                 listeners.current.get(name)?.forEach((listener) => listener(combo, key, repeat));
