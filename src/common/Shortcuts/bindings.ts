@@ -195,6 +195,30 @@ const dropDefaults = (overrides: Overrides, groups: BindingGroup[], primaryModif
     return result;
 };
 
+// Drops overridden slots that clash with another slot in the resulting state.
+const dropConflicting = (overrides: Overrides, groups: BindingGroup[], primaryModifier: PrimaryModifier) => {
+    let result = overrides;
+    for (let changed = true; changed;) {
+        changed = false;
+        const effective = resolveShortcuts(groups, result);
+        for (const name of Object.keys(result)) {
+            for (const slotKey of Object.keys(result[name])) {
+                const target = { name, slot: Number(slotKey) };
+                if (findConflict(effective, result[name][slotKey], target, primaryModifier)) {
+                    const { [slotKey]: _removed, ...rest } = result[name];
+                    result = { ...result, [name]: rest };
+                    if (Object.keys(rest).length === 0) delete result[name];
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) break;
+        }
+    }
+
+    return result;
+};
+
 // Returns a clean overrides object. Never throws; invalid entries are dropped.
 const sanitizeOverrides = (raw: unknown, groups: BindingGroup[], primaryModifier: PrimaryModifier = 'Ctrl'): Overrides => {
     const stored = raw as { version?: unknown, overrides?: unknown } | null;
@@ -226,27 +250,7 @@ const sanitizeOverrides = (raw: unknown, groups: BindingGroup[], primaryModifier
         });
     });
 
-    // Drop overridden slots that clash with another slot in the final state.
-    let result = dropDefaults(accepted, groups, primaryModifier);
-    for (let changed = true; changed;) {
-        changed = false;
-        const effective = resolveShortcuts(groups, result);
-        for (const name of Object.keys(result)) {
-            for (const slotKey of Object.keys(result[name])) {
-                const target = { name, slot: Number(slotKey) };
-                if (findConflict(effective, result[name][slotKey], target, primaryModifier)) {
-                    const { [slotKey]: _removed, ...rest } = result[name];
-                    result = { ...result, [name]: rest };
-                    if (Object.keys(rest).length === 0) delete result[name];
-                    changed = true;
-                    break;
-                }
-            }
-            if (changed) break;
-        }
-    }
-
-    return result;
+    return dropConflicting(dropDefaults(accepted, groups, primaryModifier), groups, primaryModifier);
 };
 
 // Pure: returns the new overrides, or the same object when the change is refused
@@ -283,9 +287,16 @@ const setBinding = (
     return dropDefaults(next, groups, primaryModifier);
 };
 
-const resetShortcut = (overrides: Overrides, name: string): Overrides => {
+// Resetting one shortcut can bring back a default that another override took over
+// (e.g. after a swap). Those dependent overrides are reset too, so the result never conflicts.
+const resetShortcut = (
+    overrides: Overrides,
+    name: string,
+    groups: BindingGroup[] = [],
+    primaryModifier: PrimaryModifier = 'Ctrl',
+): Overrides => {
     const { [name]: _removed, ...rest } = overrides;
-    return rest;
+    return groups.length > 0 ? dropConflicting(rest, groups, primaryModifier) : rest;
 };
 
 export {

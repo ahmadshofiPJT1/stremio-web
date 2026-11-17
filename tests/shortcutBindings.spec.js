@@ -173,6 +173,12 @@ describe('setBinding / resetShortcut', () => {
         expect(resetShortcut(overrides, 'mute')).toEqual({ volume: { 0: ['J'] } });
         expect(resetShortcut({}, 'mute')).toEqual({});
     });
+
+    test('resetting one side of a swap also resets the other side', () => {
+        const swapped = setBinding({}, defaults, { name: 'mute', slot: 0 }, ['F'], { swap: true });
+        expect(resetShortcut(swapped, 'mute', defaults)).toEqual({});
+        expect(resetShortcut(swapped, 'fullscreen', defaults)).toEqual({});
+    });
 });
 
 describe('guards', () => {

@@ -116,7 +116,7 @@ const ShortcutsProvider = ({ children, onShortcut }: Props) => {
     }, [updateOverrides]);
 
     const resetShortcut = useCallback((name: ShortcutName) => {
-        updateOverrides(resetShortcutOverride(overridesRef.current, name));
+        updateOverrides(resetShortcutOverride(overridesRef.current, name, shortcuts, PRIMARY_MODIFIER));
     }, [updateOverrides]);
 
     const resetAll = useCallback(() => {
