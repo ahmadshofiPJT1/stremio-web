@@ -12,7 +12,7 @@ const { Button, Image, MultiselectMenu } = require('stremio/components');
 const { useCore } = require('stremio/core');
 const Stream = require('./Stream');
 const styles = require('./styles');
-const { usePlatform, useProfile } = require('stremio/common');
+const { usePlatform, useProfile, useOnlineStatus } = require('stremio/common');
 const { default: SeasonEpisodePicker } = require('../EpisodePicker');
 
 const ALL_ADDONS_KEY = 'ALL';
@@ -22,6 +22,7 @@ const StreamsList = ({ className, video, type, externalPlayerCallbackCanMarkWatc
     const core = useCore();
     const platform = usePlatform();
     const profile = useProfile();
+    const online = useOnlineStatus();
     const navigate = useNavigate();
     const goBack = useGoBack();
     const streamsContainerRef = React.useRef(null);
@@ -137,6 +138,15 @@ const StreamsList = ({ className, video, type, externalPlayerCallbackCanMarkWatc
                         null
                 }
             </div>
+            {
+                // Shown next to the list, not instead of it: local addons can still return streams while offline.
+                !online ?
+                    <div className={styles['offline-warning']} role={'status'} aria-live={'polite'}>
+                        {t('NOTIFICATION_OFFLINE')}
+                    </div>
+                    :
+                    null
+            }
             {
                 props.streams.length === 0 ?
                     <div className={styles['message-container']}>

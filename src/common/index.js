@@ -31,6 +31,7 @@ const useTorrent = require('./useTorrent');
 const useTranslate = require('./useTranslate');
 const { default: useOrientation } = require('./useOrientation');
 const { default: useMediaQuery } = require('./useMediaQuery');
+const { default: useOnlineStatus } = require('./useOnlineStatus');
 const { default: useLanguageSorting } = require('./useLanguageSorting');
 
 module.exports = {
@@ -79,5 +80,6 @@ module.exports = {
     useTranslate,
     useOrientation,
     useMediaQuery,
+    useOnlineStatus,
     useLanguageSorting,
 };
