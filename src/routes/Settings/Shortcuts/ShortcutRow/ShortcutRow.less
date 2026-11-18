@@ -1,0 +1,92 @@
+.shortcut {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+
+    .main {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 2rem;
+
+        .label {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            color: var(--primary-foreground-color);
+
+            .locked {
+                font-size: 0.8rem;
+                opacity: 0.5;
+            }
+        }
+
+        .combos {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 1rem;
+
+            .combo {
+                display: flex;
+                align-items: center;
+
+                .separator {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 3.5rem;
+                    color: var(--primary-foreground-color);
+                    opacity: 0.6;
+                }
+            }
+        }
+    }
+
+    .slot {
+        display: flex;
+        align-items: center;
+        padding: 0.5rem;
+        border: thin solid transparent;
+        border-radius: 0.5rem;
+        cursor: pointer;
+
+        &:hover,
+        &.recording {
+            border-color: var(--primary-foreground-color);
+        }
+
+        &.overridden {
+            background-color: var(--overlay-color);
+        }
+
+        .prompt {
+            padding: 0 0.5rem;
+            font-size: 0.9rem;
+            color: var(--primary-foreground-color);
+        }
+    }
+
+    .action {
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        color: var(--primary-foreground-color);
+        background-color: var(--overlay-color);
+        cursor: pointer;
+
+        &:hover {
+            outline: var(--focus-outline-size) solid var(--primary-foreground-color);
+        }
+    }
+
+    .message {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        font-size: 0.9rem;
+        color: var(--primary-foreground-color);
+    }
+}

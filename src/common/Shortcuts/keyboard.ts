@@ -71,6 +71,7 @@ const getKeyboardShortcutKeys = (event: KeyboardEvent) => {
 
 export {
     PRIMARY_MODIFIER,
+    normalizeKeyboardKey,
     getKeyboardShortcutKey,
     getKeyboardShortcutKeys,
 };
